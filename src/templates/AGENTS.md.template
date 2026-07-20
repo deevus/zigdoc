@@ -1,81 +1,52 @@
 # AGENTS.md
 
+## Design Priorities
+
+Prioritize correctness, simplicity, and developer experience, in that order.
+Prefer explicit control flow and the smallest abstraction that clearly models
+the domain.
+
 ## Zig Development
 
-Use `zigdoc` to discover current APIs for the Zig standard library and any third-party dependencies before coding.
+Use `zigdoc` to discover current APIs for the Zig standard library and any
+third-party dependencies before coding.
 
 Examples:
 ```bash
 zigdoc std.fs
 zigdoc std.posix.getuid
-zigdoc vaxis.Window
 ```
 
-## Current Zig Patterns
+For imported dependencies, use the module name exposed by `build.zig`:
 
-**ArrayList:**
-```zig
-var list: std.ArrayList(u32) = .empty;
-defer list.deinit(allocator);
-try list.append(allocator, 42);
+```bash
+zigdoc <module>.<symbol>
 ```
 
-**HashMap/StringHashMap (default to unmanaged):**
-```zig
-var map: std.StringHashMapUnmanaged(u32) = .empty;
-defer map.deinit(allocator);
-try map.put(allocator, "key", 42);
-```
+## Verification
 
-**stdout/stderr writer:**
-```zig
-var buf: [4096]u8 = undefined;
-var writer = std.fs.File.stdout().writer(&buf);
-defer writer.interface.flush() catch {};
-try writer.interface.print("hello {s}\n", .{"world"});
-```
-
-**build.zig executable:**
-```zig
-b.addExecutable(.{
-    .name = "foo",
-    .root_module = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    }),
-});
-```
-
-**JSON writing:**
-```zig
-var buf: [4096]u8 = undefined;
-var writer = std.fs.File.stdout().writer(&buf);
-defer writer.interface.flush() catch {};
-
-var jw: std.json.Stringify = .{
-    .writer = &writer.interface,
-    .options = .{ .whitespace = .indent_2 },
-};
-try jw.write(my_struct);
-```
-
-**Allocating writer:**
-```zig
-var writer: std.Io.Writer.Allocating = .init(allocator);
-defer writer.deinit();
-try writer.writer.print("hello {s}", .{"world"});
-const output = try writer.toOwnedSlice();
-```
+- Run `zig build test` after code changes; it also checks formatting.
+- Use `zig build fmt` when only a formatting check is needed.
 
 ## Zig Style
 
-- `camelCase` for functions and methods
-- lower-case `snake_case` for variables, parameters, and constants
-- `PascalCase` for types, structs, and enums
-- prefer `const foo: Type = .{ .field = value };` over `const foo = Type{ .field = value };`
-- pass allocators explicitly; use `errdefer` for cleanup on error
-- keep tests inline with the code they cover; register them in `src/main.zig`
+- Use `camelCase` for functions and methods.
+- Use lower-case `snake_case` for variables, parameters, and constants.
+- Use `PascalCase` for types, structs, and enums.
+- Prefer `const foo: Type = .{ .field = value };` over
+  `const foo = Type{ .field = value };`.
+- Pass allocators explicitly; use `errdefer` for cleanup on error.
+- Keep unit tests close to the code they cover. Ensure `zig build test`
+  discovers and runs every test-bearing module.
+- Avoid abbreviations unless they are established domain terms.
+- Include units and qualifiers in names when values could otherwise be
+  ambiguous, such as `timeout_ms`, `buffer_size`, or `offset_bytes`.
+- Treat indexes, counts, and byte sizes as distinct concepts; name conversions
+  between them explicitly.
+- Use an options struct when positional arguments of the same type are easy to
+  confuse.
+- Make division semantics explicit with `@divExact`, `@divFloor`, or deliberate
+  ceiling division when rounding affects correctness.
 
 ### Files and Types
 
@@ -92,7 +63,8 @@ const output = try writer.toOwnedSlice();
   the file root already provides that container. Conversely, do not create a
   file-backed type merely to enforce one-type-per-file organization.
 - Preferred file start: `//!` container docs when needed, the file-backed type
-  alias when applicable, imports and local aliases, then a scoped logger.
+  alias when applicable, imports and local aliases, then scoped logging
+  declarations when needed.
 
 ### Comments and Documentation
 
@@ -127,5 +99,62 @@ const output = try writer.toOwnedSlice();
 
 ## Safety
 
-- Add assertions at API boundaries and state transitions; avoid trivial assertions.
-- Keep functions small and push pure computation into helpers.
+- Use assertions for programmer errors: API preconditions, state transitions,
+  internal invariants, and relationships between compile-time constants.
+  Handle expected operating errors through the error return path instead.
+- Split independent assertion conditions so failures identify the violated
+  invariant precisely.
+- Add assertions at both sides of important representation or state boundaries
+  when each side can independently verify the invariant.
+- Test both valid and invalid inputs around important boundaries, including
+  transitions from valid to invalid states.
+- Keep functions small, centralize control flow, and push pure computation into
+  helpers.
+- Keep checks close to use and avoid duplicate aliases for mutable state.
+- Make resource ownership obvious. Pair acquisition immediately with `defer` or
+  use `errdefer` when ownership has not yet transferred.
+
+## Current Zig Patterns
+
+**ArrayList:**
+```zig
+var list: std.ArrayList(u32) = .empty;
+defer list.deinit(allocator);
+try list.append(allocator, 42);
+```
+
+**HashMap/StringHashMap (default to unmanaged):**
+```zig
+var map: std.StringHashMapUnmanaged(u32) = .empty;
+defer map.deinit(allocator);
+try map.put(allocator, "key", 42);
+```
+
+**stdout/stderr writer:**
+```zig
+var buf: [4096]u8 = undefined;
+var writer = std.fs.File.stdout().writer(&buf);
+defer writer.interface.flush() catch {};
+try writer.interface.print("hello {s}\n", .{"world"});
+```
+
+**JSON writing:**
+```zig
+var buf: [4096]u8 = undefined;
+var writer = std.fs.File.stdout().writer(&buf);
+defer writer.interface.flush() catch {};
+
+var jw: std.json.Stringify = .{
+    .writer = &writer.interface,
+    .options = .{ .whitespace = .indent_2 },
+};
+try jw.write(my_struct);
+```
+
+**Allocating writer:**
+```zig
+var writer: std.Io.Writer.Allocating = .init(allocator);
+defer writer.deinit();
+try writer.writer.print("hello {s}", .{"world"});
+const output = try writer.toOwnedSlice();
+```
