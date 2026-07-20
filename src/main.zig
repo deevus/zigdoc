@@ -34,7 +34,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (std.mem.eql(u8, symbol.?, "--dump-imports")) {
-        try dumpImports(arena, io);
+        try dumpImports(io, arena);
         return;
     }
 
@@ -46,18 +46,18 @@ pub fn main(init: std.process.Init) !void {
     Walk.init(arena.allocator(), io);
     Walk.Decl.init(arena.allocator());
 
-    const std_dir_path = try getStdDir(arena, io);
+    const std_dir_path = try getStdDir(io, arena);
 
     // Only parse std library if the symbol starts with "std"
     if (std.mem.startsWith(u8, symbol.?, "std")) {
-        try walkStdLib(arena, io, std_dir_path);
+        try walkStdLib(io, arena, std_dir_path);
 
         // Register std/std.zig as the "std" module for @import("std")
         const std_file_index = Walk.files.getIndex("std/std.zig") orelse return error.StdNotFound;
         try Walk.modules.put(arena.allocator(), "std", @enumFromInt(std_file_index));
     } else {
         // For non-std symbols, process build.zig to get imported modules
-        try processBuildZig(arena, io);
+        try processBuildZig(io, arena);
     }
 
     try printDocs(arena.allocator(), io, symbol.?, std_dir_path);
@@ -131,9 +131,9 @@ fn initProject(allocator: std.mem.Allocator, io: std.Io) !void {
     };
 
     // Parse fingerprint from error: "suggested value: 0x..."
-    if (std.mem.indexOf(u8, result.stderr, "suggested value: ")) |start| {
+    if (std.mem.find(u8, result.stderr, "suggested value: ")) |start| {
         const fp_start = start + "suggested value: ".len;
-        const fp_end = std.mem.indexOfPos(u8, result.stderr, fp_start, "\n") orelse result.stderr.len;
+        const fp_end = std.mem.findPos(u8, result.stderr, fp_start, "\n") orelse result.stderr.len;
         const fingerprint = result.stderr[fp_start..fp_end];
 
         // Read current build.zig.zon and insert fingerprint
@@ -174,7 +174,7 @@ fn sanitizeName(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
     return result;
 }
 
-fn dumpImports(arena: *std.heap.ArenaAllocator, io: std.Io) !void {
+fn dumpImports(io: std.Io, arena: *std.heap.ArenaAllocator) !void {
     // Check if build.zig exists
     std.Io.Dir.cwd().access(io, "build.zig", .{}) catch {
         std.debug.print("No build.zig found in current directory\n", .{});
@@ -182,7 +182,7 @@ fn dumpImports(arena: *std.heap.ArenaAllocator, io: std.Io) !void {
     };
 
     // Setup the build runner
-    try setupBuildRunner(arena, io);
+    try setupBuildRunner(io, arena);
 
     // Run zig build with our custom runner
     const result = try std.process.run(arena.allocator(), io, .{
@@ -214,7 +214,7 @@ fn childExitedSuccessfully(term: std.process.Child.Term) bool {
     };
 }
 
-fn getZigVersion(arena: *std.heap.ArenaAllocator, io: std.Io) !std.SemanticVersion {
+fn getZigVersion(io: std.Io, arena: *std.heap.ArenaAllocator) !std.SemanticVersion {
     const version_result = try std.process.run(arena.allocator(), io, .{
         .argv = &[_][]const u8{ "zig", "version" },
     });
@@ -227,8 +227,8 @@ fn getZigVersion(arena: *std.heap.ArenaAllocator, io: std.Io) !std.SemanticVersi
     return std.SemanticVersion.parse(version_str);
 }
 
-fn setupBuildRunner(arena: *std.heap.ArenaAllocator, io: std.Io) !void {
-    const version = try getZigVersion(arena, io);
+fn setupBuildRunner(io: std.Io, arena: *std.heap.ArenaAllocator) !void {
+    const version = try getZigVersion(io, arena);
 
     const runner_src = if (version.major == 0) switch (version.minor) {
         14 => build_runner_0_14,
@@ -249,7 +249,7 @@ fn setupBuildRunner(arena: *std.heap.ArenaAllocator, io: std.Io) !void {
     });
 }
 
-fn processBuildZig(arena: *std.heap.ArenaAllocator, io: std.Io) !void {
+fn processBuildZig(io: std.Io, arena: *std.heap.ArenaAllocator) !void {
     // Check if build.zig exists
     std.Io.Dir.cwd().access(io, "build.zig", .{}) catch {
         // No build.zig, nothing to do
@@ -257,7 +257,7 @@ fn processBuildZig(arena: *std.heap.ArenaAllocator, io: std.Io) !void {
     };
 
     // Setup the build runner
-    try setupBuildRunner(arena, io);
+    try setupBuildRunner(io, arena);
 
     // Run zig build with our custom runner
     const result = try std.process.run(arena.allocator(), io, .{
@@ -337,8 +337,8 @@ fn parseBuildOutput(allocator: std.mem.Allocator, io: std.Io, output: []const u8
     }
 }
 
-fn getStdDir(arena: *std.heap.ArenaAllocator, io: std.Io) ![]const u8 {
-    const version = try getZigVersion(arena, io);
+fn getStdDir(io: std.Io, arena: *std.heap.ArenaAllocator) ![]const u8 {
+    const version = try getZigVersion(io, arena);
 
     const is_pre_0_15 = version.order(.{ .major = 0, .minor = 15, .patch = 0 }) == .lt;
 
@@ -372,7 +372,7 @@ fn getStdDir(arena: *std.heap.ArenaAllocator, io: std.Io) ![]const u8 {
     }
 }
 
-fn walkStdLib(arena: *std.heap.ArenaAllocator, io: std.Io, std_dir_path: []const u8) !void {
+fn walkStdLib(io: std.Io, arena: *std.heap.ArenaAllocator, std_dir_path: []const u8) !void {
     const allocator = arena.allocator();
     var dir = try std.Io.Dir.openDirAbsolute(io, std_dir_path, .{ .iterate = true });
     defer dir.close(io);
@@ -555,7 +555,7 @@ fn printDocs(allocator: std.mem.Allocator, io: std.Io, symbol: []const u8, std_d
     const stdout = &stdout_writer.interface;
 
     // Try hierarchical resolution first (e.g., "zeit.timezone.Posix")
-    if (std.mem.indexOf(u8, symbol, ".")) |_| {
+    if (std.mem.find(u8, symbol, ".")) |_| {
         if (try resolveHierarchical(allocator, symbol)) |decl| {
             try printDeclInfo(allocator, stdout, decl, symbol, std_dir_path);
             try stdout.flush();

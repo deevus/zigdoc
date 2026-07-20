@@ -1,4 +1,5 @@
 const std = @import("std");
+const ziglint = @import("ziglint");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -68,4 +69,13 @@ pub fn build(b: *std.Build) void {
     });
     fmt_step.dependOn(&fmt_check.step);
     test_step.dependOn(fmt_step);
+
+    const lint_step = b.step("lint", "Run ziglint");
+    const ziglint_dep = b.dependency("ziglint", .{ .optimize = .ReleaseFast });
+    lint_step.dependOn(ziglint.addLint(
+        b,
+        ziglint_dep,
+        &.{ b.path("src"), b.path("build.zig"), b.path("build_readme.zig") },
+    ));
+    test_step.dependOn(lint_step);
 }
